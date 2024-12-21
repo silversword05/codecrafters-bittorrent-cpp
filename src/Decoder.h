@@ -2,7 +2,9 @@
 
 #include "lib/nlohmann/json.hpp"
 using json = nlohmann::json;
+using jsonWithSize = std::pair<json, size_t>;
 
-json stringDecoding(const std::string& encoded_value);
-json decodeIntegers(const std::string& encoded_value);
-json decodeBencodedValue(const std::string& encoded_value);
+jsonWithSize stringDecoding(const std::string_view encoded_value);
+jsonWithSize decodeIntegers(const std::string_view encoded_value);
+jsonWithSize decodeList(const std::string_view encoded_value);
+jsonWithSize decodeBencodedValue(const std::string_view encoded_value);
