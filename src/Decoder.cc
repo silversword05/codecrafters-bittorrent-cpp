@@ -1,6 +1,6 @@
 #include "Decoder.h"
 
-jsonWithSize stringDecoding(const std::string_view encoded_value) {
+jsonWithSize decodeString(const std::string_view encoded_value) {
     // Example: "5:hello" -> "hello"
     size_t colon_index = encoded_value.find(':');
     if (colon_index != std::string::npos) {
@@ -41,13 +41,33 @@ jsonWithSize decodeList(const std::string_view encoded_value) {
     return {res, i + 1};
 }
 
+jsonWithSize decodeDictionary(const std::string_view encoded_value) {
+    // Example: "d3:cow3:moo4:spam4:eggse" -> {"cow": "moo", "spam": "eggs"}
+    assert(("The provided size is too small", encoded_value.size() >= 2));
+    json res = json::object();
+    size_t i = 1;
+    while (i < encoded_value.size() - 1 && encoded_value[i] != 'e') {
+        auto [key, key_size] = decodeBencodedValue(encoded_value.substr(i));
+        i += key_size;
+        auto [val, val_size] =
+            decodeBencodedValue(encoded_value.substr(i));
+        res[key.get<std::string>()] = val;
+        i += val_size;
+    }
+    assert(("The dictionary is not properly terminated",
+            encoded_value[i] == 'e'));
+    return {res, i + 1};
+}
+
 jsonWithSize decodeBencodedValue(const std::string_view encoded_value) {
     if (std::isdigit(encoded_value[0])) {
-        return stringDecoding(encoded_value);
+        return decodeString(encoded_value);
     } else if (encoded_value[0] == 'i') {
         return decodeIntegers(encoded_value);
     } else if (encoded_value[0] == 'l') {
         return decodeList(encoded_value);
+    } else if (encoded_value[0] == 'd') {
+        return decodeDictionary(encoded_value);
     } else {
         throw std::runtime_error("Invalid encoded value: " +
                                  std::string(encoded_value));
