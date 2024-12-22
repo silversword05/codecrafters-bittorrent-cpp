@@ -61,9 +61,21 @@ void decodeTorrentFile(const std::string &file_path) {
     SHA1 hasher;
     std::string info = encodeJson(decoded_value["info"]);
     hasher.update(info);
-
     std::cout << "Info Hash: " << hasher.final() << std::endl;
-    hexdump(info);
+    std::cout << "Piece Length: "
+              << decoded_value["info"]["piece length"].get<int>() << std::endl;
+
+    std::string pieces_val = decoded_value["info"]["pieces"].get<std::string>();
+
+    for (uint i = 0; i < pieces_val.size(); i += 20) {
+        std::string piece_hash = pieces_val.substr(i, 20);
+        std::ostringstream result;
+        for (size_t i = 0; i < piece_hash.size() / sizeof(piece_hash[0]); i++) {
+            result << std::hex << std::setfill('0') << std::setw(2)
+                   << static_cast<int>(piece_hash[i] & 0xff);
+        }
+        std::cout << "Pieces: " << result.str() << std::endl;
+    }
 }
 
 bool dispatchCommand(int argc, char *argv[]) {
