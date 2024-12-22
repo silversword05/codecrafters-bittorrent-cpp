@@ -1,3 +1,5 @@
+#pragma once
+
 #include <bits/stdc++.h>
 
 #include "lib/nlohmann/json.hpp"
@@ -9,6 +11,3 @@ jsonWithSize decodeIntegers(const std::string_view encoded_value);
 jsonWithSize decodeList(const std::string_view encoded_value);
 jsonWithSize decodeDictionary(const std::string_view encoded_value);
 jsonWithSize decodeBencodedValue(const std::string_view encoded_value);
-
-void decodeTorrentFile(const std::string &file_path);
-bool dispatchCommand(int argc, char *argv[]);

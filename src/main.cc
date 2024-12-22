@@ -1,4 +1,4 @@
-#include "Decoder.h"
+#include "Commands.h"
 
 int main(int argc, char *argv[]) {
     // Flush after every std::cout / std::cerr
