@@ -1,5 +1,6 @@
 #include "Commands.h"
 #include "lib/HTTPRequest.hpp"
+#include <arpa/inet.h>
 
 namespace {
 void hexdump(const std::string &str) {
@@ -42,7 +43,7 @@ void hexdump(const std::string &str) {
 }
 } // namespace
 
-std::string url_encode(const std::string &value) {
+std::string urlEncode(const std::string &value) {
     std::ostringstream escaped;
     escaped.fill('0');
     escaped << std::hex;
@@ -76,6 +77,15 @@ std::string hexToString(const std::string &hex) {
     return result;
 }
 
+std::string stringToHex(const std::string &str) {
+    std::ostringstream result;
+    for (size_t i = 0; i < str.size() / sizeof(str[0]); i++) {
+        result << std::hex << std::setfill('0') << std::setw(2)
+               << static_cast<int>(str[i] & 0xff);
+    }
+    return result.str();
+}
+
 std::string formatUrlWithGetParams(
     const std::string &url,
     const std::unordered_map<std::string, std::string> &params) {
@@ -85,7 +95,7 @@ std::string formatUrlWithGetParams(
 
     std::string formatted_url = url + "?";
     for (const auto &[key, value] : params) {
-        formatted_url += key + "=" + url_encode(value) + "&";
+        formatted_url += key + "=" + urlEncode(value) + "&";
     }
     formatted_url.pop_back(); // Remove the trailing '&'
 
@@ -131,16 +141,11 @@ void decodeTorrentFile(const std::string &torrent_file_path) {
 
     for (uint i = 0; i < pieces_val.size(); i += 20) {
         std::string piece_hash = pieces_val.substr(i, 20);
-        std::ostringstream result;
-        for (size_t i = 0; i < piece_hash.size() / sizeof(piece_hash[0]); i++) {
-            result << std::hex << std::setfill('0') << std::setw(2)
-                   << static_cast<int>(piece_hash[i] & 0xff);
-        }
-        std::cout << "Pieces: " << result.str() << std::endl;
+        std::cout << "Pieces: " << stringToHex(piece_hash) << std::endl;
     }
 }
 
-void discoverPeers(const std::string &torrent_file_path) {
+std::vector<IPPort> getPeers(const std::string &torrent_file_path) {
     // std::cerr << __PRETTY_FUNCTION__ << std::endl;
 
     auto [decoded_value, sizeConsumed] =
@@ -151,7 +156,7 @@ void discoverPeers(const std::string &torrent_file_path) {
 
     std::unordered_map<std::string, std::string> params = {
         {"info_hash", hexToString(hasher.final())},
-        {"peer_id", "-TR2940-0b0b0b0b0b0b"},
+        {"peer_id", PEER_ID},
         {"port", "6881"},
         {"uploaded", "0"},
         {"downloaded", "0"},
@@ -174,14 +179,94 @@ void discoverPeers(const std::string &torrent_file_path) {
     std::string peers = respDecoded.first["peers"].get<std::string>();
     assert(("Invalid peers value size", peers.size() % 6 == 0));
 
+    std::vector<IPPort> result;
     for (uint i = 0; i < peers.size(); i += 6) {
         std::string ip = std::to_string(peers[i] & 0xff) + "." +
                          std::to_string(peers[i + 1] & 0xff) + "." +
                          std::to_string(peers[i + 2] & 0xff) + "." +
                          std::to_string(peers[i + 3] & 0xff);
         uint16_t port = (peers[i + 4] & 0xff) << 8 | (peers[i + 5] & 0xff);
-        std::cout << ip << ":" << port << std::endl;
+        result.push_back({ip, port});
     }
+
+    return result;
+}
+
+void discoverPeers(const std::string &torrent_file_path) {
+    // std::cerr << __PRETTY_FUNCTION__ << std::endl;
+
+    std::vector<IPPort> peers = getPeers(torrent_file_path);
+    for (const auto &peer : peers) {
+        std::cout << peer.first << ":" << peer.second << std::endl;
+    }
+}
+
+std::string getHandshakeBuffer(const std::string &torrent_file_path) {
+    // std::cerr << __PRETTY_FUNCTION__ << std::endl;
+
+    auto [decoded_value, sizeConsumed] =
+        getTorrentFileContents(torrent_file_path);
+
+    SHA1 hasher;
+    hasher.update(encodeJson(decoded_value["info"]));
+
+    std::string info_hash = hexToString(hasher.final());
+
+    std::string handshake;
+    std::string protocol = "BitTorrent protocol";
+    handshake.push_back(static_cast<char>(protocol.size()));
+    handshake.append(protocol);
+    handshake.append(8, 0);
+
+    handshake += info_hash;
+    handshake += PEER_ID;
+
+    return handshake;
+}
+
+void doHandshake(const std::string &torrent_file_path, const IPPort &peer) {
+    // std::cerr << __PRETTY_FUNCTION__ << std::endl;
+
+    struct sockaddr_in serv_addr;
+
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0) {
+        perror("socket failed: ");
+        throw std::runtime_error("Failed to create server socket: ");
+    }
+
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_port = htons(peer.second);
+
+    if (inet_pton(AF_INET, peer.first.c_str(), &serv_addr.sin_addr) <= 0) {
+        perror("inet_pton failed: ");
+        throw std::runtime_error("Invalid address/ Address not supported: ");
+    }
+
+    if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+        perror("connect failed: ");
+        throw std::runtime_error("Connection failed: ");
+    }
+
+    std::string handshake = getHandshakeBuffer(torrent_file_path);
+    hexdump(handshake);
+
+    if (send(sock, handshake.c_str(), handshake.size(), 0) < 0) {
+        perror("send failed: ");
+        throw std::runtime_error("Failed to send handshake: ");
+    }
+
+    char buffer[MAX_BUFFER_SIZE] = {0};
+    int valread = read(sock, buffer, MAX_BUFFER_SIZE);
+    if (valread < 0) {
+        perror("read failed: ");
+        throw std::runtime_error("Failed to read from socket: ");
+    }
+    std::string output(buffer, valread);
+    hexdump(output);
+
+    std::string peer_id = output.substr(48, 20);
+    std::cout << "Peer ID: " << stringToHex(peer_id) << std::endl;
 }
 
 bool dispatchCommand(int argc, char *argv[]) {
@@ -223,6 +308,23 @@ bool dispatchCommand(int argc, char *argv[]) {
         }
         std::string torrent_file_path = argv[2];
         discoverPeers(torrent_file_path);
+    } else if (command == "handshake") {
+        if (argc < 4) {
+            std::cerr << "Usage: " << argv[0] << " handshake <file_path> "
+                      << "<ip>:<port>" << std::endl;
+            return false;
+        }
+        std::string torrent_file_path = argv[2];
+        std::string peer_str = argv[3];
+        size_t colon_pos = peer_str.find(':');
+        if (colon_pos == std::string::npos) {
+            std::cerr << "Invalid peer address" << std::endl;
+            return false;
+        }
+        std::string ip = peer_str.substr(0, colon_pos);
+        uint16_t port = std::stoi(peer_str.substr(colon_pos + 1));
+        IPPort peer = {ip, port};
+        doHandshake(torrent_file_path, peer);
     } else {
         std::cerr << "unknown command: " << command << std::endl;
         return false;
