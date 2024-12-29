@@ -24,4 +24,4 @@ void discoverPeers(const std::string &torrent_file_path);
 std::string getHandshakeBuffer(const std::string &torrent_file_path);
 void doHandshake(const std::string &torrent_file_path, const IPPort &peer);
 
-bool dispatchCommand(int argc, char *argv[]);
+void dispatchCommand(int argc, char *argv[]);

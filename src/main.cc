@@ -5,8 +5,6 @@ int main(int argc, char *argv[]) {
     std::cout << std::unitbuf;
     std::cerr << std::unitbuf;
 
-    if (!dispatchCommand(argc, argv)) {
-        return 1;
-    }
+    dispatchCommand(argc, argv);
     return 0;
 }

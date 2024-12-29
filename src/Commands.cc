@@ -1,5 +1,6 @@
 #include "Commands.h"
 #include "lib/HTTPRequest.hpp"
+#include "lib/argparse/argparse.hpp"
 #include <arpa/inet.h>
 
 namespace {
@@ -269,65 +270,71 @@ void doHandshake(const std::string &torrent_file_path, const IPPort &peer) {
     std::cout << "Peer ID: " << stringToHex(peer_id) << std::endl;
 }
 
-bool dispatchCommand(int argc, char *argv[]) {
+void dispatchCommand(int argc, char *argv[]) {
     // std::cerr << __PRETTY_FUNCTION__ << std::endl;
 
-    if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " decode <encoded_value>"
-                  << std::endl;
-        return false;
-    }
+    argparse::ArgumentParser program("bittorrent");
 
-    std::string command = argv[1];
+    argparse::ArgumentParser decode_command("decode");
+    decode_command.add_description("Decode a bencoded value.");
+    decode_command.add_argument("encoded_value")
+        .help("The encoded value to decode.")
+        .required();
+    program.add_subparser(decode_command);
 
-    if (command == "decode") {
-        if (argc < 3) {
-            std::cerr << "Usage: " << argv[0] << " decode <encoded_value>"
-                      << std::endl;
-            return false;
-        }
-        std::string encoded_value = argv[2];
+    argparse::ArgumentParser info_command("info");
+    info_command.add_description("Get information about a torrent file.");
+    info_command.add_argument("file_path")
+        .help("The path to the torrent file.")
+        .required();
+    program.add_subparser(info_command);
+
+    argparse::ArgumentParser peers_command("peers");
+    peers_command.add_description("Get the list of peers for a torrent file.");
+    peers_command.add_argument("file_path")
+        .help("The path to the torrent file.")
+        .required();
+    program.add_subparser(peers_command);
+
+    argparse::ArgumentParser handshake_command("handshake");
+    handshake_command.add_description("Perform a handshake with a peer.");
+    handshake_command.add_argument("file_path")
+        .help("The path to the torrent file.")
+        .required();
+    handshake_command.add_argument("peer")
+        .help("The peer to handshake with.")
+        .required();
+    program.add_subparser(handshake_command);
+
+    program.parse_args(argc, argv);
+
+    if (program.is_subcommand_used("decode")) {
+        std::string encoded_value =
+            decode_command.get<std::string>("encoded_value");
         auto [decoded_value, size_consumed] =
             decodeBencodedValue(encoded_value);
         assert(("Entire string not consumed",
                 size_consumed == encoded_value.size()));
         std::cout << decoded_value.dump() << std::endl;
-    } else if (command == "info") {
-        if (argc < 3) {
-            std::cerr << "Usage: " << argv[0] << " info <file_path>"
-                      << std::endl;
-            return false;
-        }
-        std::string torrent_file_path = argv[2];
+    } else if (program.is_subcommand_used("info")) {
+        std::string torrent_file_path =
+            info_command.get<std::string>("file_path");
         decodeTorrentFile(torrent_file_path);
-    } else if (command == "peers") {
-        if (argc < 3) {
-            std::cerr << "Usage: " << argv[0] << " peers <file_path>"
-                      << std::endl;
-            return false;
-        }
-        std::string torrent_file_path = argv[2];
+    } else if (program.is_subcommand_used("peers")) {
+        std::string torrent_file_path =
+            peers_command.get<std::string>("file_path");
         discoverPeers(torrent_file_path);
-    } else if (command == "handshake") {
-        if (argc < 4) {
-            std::cerr << "Usage: " << argv[0] << " handshake <file_path> "
-                      << "<ip>:<port>" << std::endl;
-            return false;
-        }
-        std::string torrent_file_path = argv[2];
-        std::string peer_str = argv[3];
+    } else if (program.is_subcommand_used("handshake")) {
+        std::string torrent_file_path =
+            handshake_command.get<std::string>("file_path");
+        std::string peer_str = handshake_command.get<std::string>("peer");
         size_t colon_pos = peer_str.find(':');
         if (colon_pos == std::string::npos) {
-            std::cerr << "Invalid peer address" << std::endl;
-            return false;
+            throw std::runtime_error("Invalid peer address");
         }
         std::string ip = peer_str.substr(0, colon_pos);
         uint16_t port = std::stoi(peer_str.substr(colon_pos + 1));
         IPPort peer = {ip, port};
         doHandshake(torrent_file_path, peer);
-    } else {
-        std::cerr << "unknown command: " << command << std::endl;
-        return false;
     }
-    return true;
 }
