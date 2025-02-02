@@ -44,7 +44,7 @@ void TCPHandler::clearReadBuffer() const {
 
 void TCPHandler::sendData(const std::string &data) const {
     clearReadBuffer();
-    hexdump(data, "Sending data");
+    // hexdump(data, "Sending data");
     if (send(sock, data.c_str(), data.size(), 0) < 0) {
         perror("send failed: ");
         throw std::runtime_error("Failed to send data: ");
@@ -59,7 +59,7 @@ std::string TCPHandler::readHandShake() const {
         throw std::runtime_error("Failed to read from socket: ");
     }
     std::string res = std::string(buffer, valread);
-    hexdump(res, "Handshake read");
+    // hexdump(res, "Handshake read");
     return res;
 }
 
