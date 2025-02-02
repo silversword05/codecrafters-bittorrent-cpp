@@ -238,7 +238,6 @@ void downloadPiece(const std::string &torrent_file_path,
 
     std::ofstream output_file(output_file_path, std::ios::binary);
     output_file.write(piece_data.data(), piece_data.size());
-    output_file.close();
 
     std::string pieces_val = decoded_value["info"]["pieces"].get<std::string>();
     assert(("Invalid pieces value size", pieces_val.size() % 20 == 0));
@@ -246,6 +245,46 @@ void downloadPiece(const std::string &torrent_file_path,
     assert(("Piece verification failed", verifyPeice(piece_data, piece_hash)));
 
     std::cerr << "Piece downloaded successfully" << std::endl;
+}
+
+void download(const std::string &torrent_file_path,
+              const std::string &output_file_path) {
+    // std::cerr << __PRETTY_FUNCTION__ << std::endl;
+
+    auto [decoded_value, sizeConsumed] =
+        getTorrentFileContents(torrent_file_path);
+    std::vector<IPPort> peers = getPeers(decoded_value);
+    assert(("No peers found", !peers.empty()));
+
+    TCPHandler tcp_handler(peers[0]);
+    doHandshakeHelper(torrent_file_path, tcp_handler);
+
+    std::string message = tcp_handler.readMessage();
+    Message parsed_message = Message::parseFromBuffer(message);
+    assert(("Not a bitfield message",
+            parsed_message.type == MessageType::BITFIELD));
+
+    tcp_handler.sendData(Message::getInterestedMessage());
+    while (!Message::isUnchokeMessage(tcp_handler.readMessage())) {
+        continue;
+    }
+
+    std::ofstream output_file(output_file_path, std::ios::binary);
+    std::string pieces_val = decoded_value["info"]["pieces"].get<std::string>();
+    assert(("Invalid pieces value size", pieces_val.size() % 20 == 0));
+
+    PieceDownloader piece_downloader(decoded_value, tcp_handler);
+    for (uint32_t i = 0; i < pieces_val.size() / 20; i++) {
+
+        std::string piece_data = piece_downloader.downloadPiece(i);
+        std::string piece_hash = pieces_val.substr(i * 20, 20);
+        assert(
+            ("Piece verification failed", verifyPeice(piece_data, piece_hash)));
+
+        output_file.write(piece_data.data(), piece_data.size());
+        std::cerr << "Piece downloaded successfully" << std::endl;
+    }
+    std::cerr << "Download completed successfully" << std::endl;
 }
 
 void dispatchCommand(int argc, char *argv[]) {
@@ -298,6 +337,16 @@ void dispatchCommand(int argc, char *argv[]) {
         .required();
     program.add_subparser(download_piece_command);
 
+    argparse::ArgumentParser download_command("download");
+    download_command.add_description("Download a torrent file.");
+    download_command.add_argument("-o", "--output")
+        .help("The output file path.")
+        .required();
+    download_command.add_argument("file_path")
+        .help("The path to the torrent file.")
+        .required();
+    program.add_subparser(download_command);
+
     program.parse_args(argc, argv);
 
     if (program.is_subcommand_used("decode")) {
@@ -336,5 +385,11 @@ void dispatchCommand(int argc, char *argv[]) {
         uint32_t piece_index =
             download_piece_command.get<uint32_t>("peice_index");
         downloadPiece(torrent_file_path, output_file_path, piece_index);
+    } else if (program.is_subcommand_used("download")) {
+        std::string output_file_path =
+            download_command.get<std::string>("output");
+        std::string torrent_file_path =
+            download_command.get<std::string>("file_path");
+        download(torrent_file_path, output_file_path);
     }
 }

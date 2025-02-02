@@ -94,7 +94,7 @@ std::string TCPHandler::readMessage() const {
     assert(("Failed to read entire message",
             total_bytes_received == message_length));
 
-    hexdump(message, "Message read");
+    // hexdump(message, "Message read");
     return message;
 }
 

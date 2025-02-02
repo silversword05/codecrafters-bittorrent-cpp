@@ -28,4 +28,7 @@ void downloadPiece(const std::string &torrent_file_path,
                    const std::string &output_file_path,
                    const uint32_t piece_index);
 
+void download(const std::string &torrent_file_path,
+              const std::string &output_file_path);
+
 void dispatchCommand(int argc, char *argv[]);
