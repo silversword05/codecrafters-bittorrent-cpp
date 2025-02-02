@@ -75,7 +75,7 @@ std::string TCPHandler::readMessage() const {
 
     uint32_t message_length =
         ntohl(*reinterpret_cast<uint32_t *>(message.data()));
-    std::cerr << "Message length: " << message_length << std::endl;
+    // std::cerr << "Message length: " << message_length << std::endl;
     assert(("Invalid message length",
             message_length > 0 && message_length <= (1 << 14) + 10));
     message.resize(message_length + MESSAGE_LENGTH_SIZE);
