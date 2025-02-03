@@ -36,13 +36,15 @@ struct Message {
 };
 
 struct PieceDownloader {
-    PieceDownloader(json decoded_value, const TCPHandler &tcp_handler);
+    PieceDownloader() = default;
+    PieceDownloader(json decoded_value,
+                    std::unique_ptr<TCPHandler> tcp_handler);
     std::string downloadPiece(const uint32_t piece_index);
 
   private:
     constexpr static size_t BLOCK_SIZE = 1 << (10 + 4); // 4kB
 
-    const TCPHandler &tcp_handler;
+    std::unique_ptr<TCPHandler> tcp_handler;
     size_t standard_piece_length;
     size_t total_file_size;
     size_t num_pieces;

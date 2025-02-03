@@ -35,7 +35,8 @@ Message::interpretAsPieceMessage(const uint32_t peice_index) const {
     uint32_t extracted_piece_index =
         ntohl(*reinterpret_cast<const uint32_t *>(payload.data()));
     assert(("Piece index mismatch", extracted_piece_index == peice_index));
-    uint32_t offset = ntohl(*reinterpret_cast<const uint32_t *>(payload.data() + 4));
+    uint32_t offset =
+        ntohl(*reinterpret_cast<const uint32_t *>(payload.data() + 4));
     return {offset, payload.substr(8)};
 }
 
@@ -54,7 +55,8 @@ std::string Message::getRequestMessage(uint32_t piece_index, uint32_t offset,
     message.payload.resize(12);
     *reinterpret_cast<uint32_t *>(message.payload.data()) = htonl(piece_index);
     *reinterpret_cast<uint32_t *>(message.payload.data() + 4) = htonl(offset);
-    *reinterpret_cast<uint32_t *>(message.payload.data() + 8) = htonl(block_length);
+    *reinterpret_cast<uint32_t *>(message.payload.data() + 8) =
+        htonl(block_length);
     return message.serialize();
 }
 
@@ -63,9 +65,8 @@ bool Message::isUnchokeMessage(const std::string &buffer) {
     return message.type == MessageType::UNCHOKE;
 }
 
-PieceDownloader::PieceDownloader(json decoded_value,
-                                 const TCPHandler &tcp_handler)
-    : tcp_handler(tcp_handler) {
+PieceDownloader::PieceDownloader(json decoded_value, std::unique_ptr<TCPHandler> tcp_handler)
+    : tcp_handler(std::move(tcp_handler)) {
     // std::cerr << __PRETTY_FUNCTION__ << std::endl;
     // std::cerr << decoded_value.dump(-1, ' ', false,
     // json::error_handler_t::replace) << std::endl;
@@ -98,8 +99,8 @@ std::string PieceDownloader::downloadPiece(const uint32_t piece_index) {
 
         std::string request_message = Message::getRequestMessage(
             piece_index, piece_length - remaining, block_length);
-        tcp_handler.sendData(request_message);
-        std::string response = tcp_handler.readMessage();
+        tcp_handler->sendData(request_message);
+        std::string response = tcp_handler->readMessage();
         Message parsed_message = Message::parseFromBuffer(response);
         auto [offset, data] =
             parsed_message.interpretAsPieceMessage(piece_index);

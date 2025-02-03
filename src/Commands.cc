@@ -220,20 +220,20 @@ void downloadPiece(const std::string &torrent_file_path,
     std::vector<IPPort> peers = getPeers(decoded_value);
     assert(("No peers found", !peers.empty()));
 
-    TCPHandler tcp_handler(peers[0]);
-    doHandshakeHelper(torrent_file_path, tcp_handler);
+    auto tcp_handler = std::make_unique<TCPHandler>(peers[0]);
+    doHandshakeHelper(torrent_file_path, *tcp_handler);
 
-    std::string message = tcp_handler.readMessage();
+    std::string message = tcp_handler->readMessage();
     Message parsed_message = Message::parseFromBuffer(message);
     assert(("Not a bitfield message",
             parsed_message.type == MessageType::BITFIELD));
 
-    tcp_handler.sendData(Message::getInterestedMessage());
-    while (!Message::isUnchokeMessage(tcp_handler.readMessage())) {
+    tcp_handler->sendData(Message::getInterestedMessage());
+    while (!Message::isUnchokeMessage(tcp_handler->readMessage())) {
         continue;
     }
 
-    PieceDownloader piece_downloader(decoded_value, tcp_handler);
+    PieceDownloader piece_downloader(decoded_value, std::move(tcp_handler));
     std::string piece_data = piece_downloader.downloadPiece(piece_index);
 
     std::ofstream output_file(output_file_path, std::ios::binary);
@@ -256,33 +256,63 @@ void download(const std::string &torrent_file_path,
     std::vector<IPPort> peers = getPeers(decoded_value);
     assert(("No peers found", !peers.empty()));
 
-    TCPHandler tcp_handler(peers[0]);
-    doHandshakeHelper(torrent_file_path, tcp_handler);
+    std::vector<PieceDownloader> piece_downloaders(peers.size());
+    auto prepare_downloader = [&](size_t peer_index) {
+        auto tcp_handler = std::make_unique<TCPHandler>(peers[peer_index]);
+        doHandshakeHelper(torrent_file_path, *tcp_handler);
 
-    std::string message = tcp_handler.readMessage();
-    Message parsed_message = Message::parseFromBuffer(message);
-    assert(("Not a bitfield message",
-            parsed_message.type == MessageType::BITFIELD));
+        std::string message = tcp_handler->readMessage();
+        Message parsed_message = Message::parseFromBuffer(message);
+        assert(("Not a bitfield message",
+                parsed_message.type == MessageType::BITFIELD));
 
-    tcp_handler.sendData(Message::getInterestedMessage());
-    while (!Message::isUnchokeMessage(tcp_handler.readMessage())) {
-        continue;
+        tcp_handler->sendData(Message::getInterestedMessage());
+        while (!Message::isUnchokeMessage(tcp_handler->readMessage())) {
+            continue;
+        }
+
+        piece_downloaders[peer_index] =
+            PieceDownloader(decoded_value, std::move(tcp_handler));
+    };
+
+    {
+        std::vector<std::jthread> threads;
+        for (size_t peer_index = 0; peer_index < peers.size(); peer_index++) {
+            threads.emplace_back(prepare_downloader, peer_index);
+        }
+    }
+    std::cerr << "All peer connections established" << std::endl;
+
+    std::string pieces_val = decoded_value["info"]["pieces"].get<std::string>();
+    assert(("Invalid pieces value size", pieces_val.size() % 20 == 0));
+    std::vector<std::string> pieces_data(pieces_val.size() / 20);
+
+    auto peer_downloader = [&](size_t peer_index) {
+        uint32_t piece_index = peer_index;
+        while (piece_index < pieces_val.size() / 20) {
+            pieces_data[piece_index] =
+                piece_downloaders[peer_index].downloadPiece(piece_index);
+            std::string piece_hash = pieces_val.substr(piece_index * 20, 20);
+            assert(("Piece verification failed",
+                    verifyPeice(pieces_data[piece_index], piece_hash)));
+            std::cerr << "Piece " << piece_index
+                      << " downloaded successfully by peer " << peer_index
+                      << std::endl;
+            piece_index += peers.size();
+        }
+    };
+
+    {
+        std::vector<std::jthread> threads;
+        for (size_t peer_index = 0; peer_index < peers.size(); peer_index++) {
+            threads.emplace_back(peer_downloader, peer_index);
+        }
     }
 
     std::ofstream output_file(output_file_path, std::ios::binary);
-    std::string pieces_val = decoded_value["info"]["pieces"].get<std::string>();
-    assert(("Invalid pieces value size", pieces_val.size() % 20 == 0));
-
-    PieceDownloader piece_downloader(decoded_value, tcp_handler);
     for (uint32_t i = 0; i < pieces_val.size() / 20; i++) {
-
-        std::string piece_data = piece_downloader.downloadPiece(i);
-        std::string piece_hash = pieces_val.substr(i * 20, 20);
-        assert(
-            ("Piece verification failed", verifyPeice(piece_data, piece_hash)));
-
+        const std::string &piece_data = pieces_data[i];
         output_file.write(piece_data.data(), piece_data.size());
-        std::cerr << "Piece downloaded successfully" << std::endl;
     }
     std::cerr << "Download completed successfully" << std::endl;
 }
@@ -331,7 +361,7 @@ void dispatchCommand(int argc, char *argv[]) {
     download_piece_command.add_argument("file_path")
         .help("The path to the torrent file.")
         .required();
-    download_piece_command.add_argument("peice_index")
+    download_piece_command.add_argument("piece_index")
         .help("The peice index to download.")
         .scan<'i', uint32_t>()
         .required();
@@ -383,7 +413,7 @@ void dispatchCommand(int argc, char *argv[]) {
         std::string torrent_file_path =
             download_piece_command.get<std::string>("file_path");
         uint32_t piece_index =
-            download_piece_command.get<uint32_t>("peice_index");
+            download_piece_command.get<uint32_t>("piece_index");
         downloadPiece(torrent_file_path, output_file_path, piece_index);
     } else if (program.is_subcommand_used("download")) {
         std::string output_file_path =
