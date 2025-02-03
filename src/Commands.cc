@@ -85,6 +85,15 @@ std::string formatUrlWithGetParams(
     return formatted_url;
 }
 
+std::string getInfoHash(const std::string &torrent_file_path) {
+    // std::cerr << __PRETTY_FUNCTION__ << std::endl;
+    auto [decoded_value, sizeConsumed] =
+        getTorrentFileContents(torrent_file_path);
+    SHA1 hasher;
+    hasher.update(encodeJson(decoded_value["info"]));
+    return hexToString(hasher.final());
+}
+
 jsonWithSize getTorrentFileContents(const std::string &torrent_file_path) {
     // std::cerr << __PRETTY_FUNCTION__ << std::endl;
 
@@ -128,31 +137,23 @@ void decodeTorrentFile(const std::string &torrent_file_path) {
     }
 }
 
-std::vector<IPPort> getPeers(const json &decoded_value) {
+std::vector<IPPort> getPeers(const std::string &info_hash,
+                             const std::string &tracker_url, const int left) {
     // std::cerr << __PRETTY_FUNCTION__ << std::endl;
 
-    SHA1 hasher;
-    hasher.update(encodeJson(decoded_value["info"]));
-
     std::unordered_map<std::string, std::string> params = {
-        {"info_hash", hexToString(hasher.final())},
-        {"peer_id", PEER_ID},
-        {"port", "6881"},
-        {"uploaded", "0"},
-        {"downloaded", "0"},
-        {"left", std::to_string(decoded_value["info"]["length"].get<int>())},
+        {"info_hash", info_hash}, {"peer_id", PEER_ID},
+        {"port", "6881"},         {"uploaded", "0"},
+        {"downloaded", "0"},      {"left", std::to_string(left)},
         {"compact", "1"}};
 
-    std::string url = decoded_value["announce"].get<std::string>();
-    std::string formatted_url = formatUrlWithGetParams(url, params);
-
+    std::string formatted_url = formatUrlWithGetParams(tracker_url, params);
     std::cerr << "Formatted URL: " << formatted_url << std::endl;
 
     http::Request request{formatted_url, http::InternetProtocol::v4};
     const auto response = request.send("GET");
 
     std::string respStr{response.body.begin(), response.body.end()};
-
     jsonWithSize respDecoded = decodeBencodedValue(respStr);
     assert(
         ("Entire string not consumed", respDecoded.second == respStr.size()));
@@ -172,6 +173,16 @@ std::vector<IPPort> getPeers(const json &decoded_value) {
     return result;
 }
 
+std::vector<IPPort> getPeers(const json &decoded_value) {
+    // std::cerr << __PRETTY_FUNCTION__ << std::endl;
+
+    SHA1 hasher;
+    hasher.update(encodeJson(decoded_value["info"]));
+    return getPeers(hexToString(hasher.final()),
+                    decoded_value["announce"].get<std::string>(),
+                    decoded_value["info"]["length"].get<int>());
+}
+
 void discoverPeers(const std::string &torrent_file_path) {
     // std::cerr << __PRETTY_FUNCTION__ << std::endl;
 
@@ -183,22 +194,18 @@ void discoverPeers(const std::string &torrent_file_path) {
     }
 }
 
-std::string getHandshakeBuffer(const std::string &torrent_file_path) {
+std::string getHandshakeBuffer(const std::string &info_hash,
+                               bool support_extension) {
     // std::cerr << __PRETTY_FUNCTION__ << std::endl;
-
-    auto [decoded_value, sizeConsumed] =
-        getTorrentFileContents(torrent_file_path);
-
-    SHA1 hasher;
-    hasher.update(encodeJson(decoded_value["info"]));
-
-    std::string info_hash = hexToString(hasher.final());
-
     std::string handshake;
     std::string protocol = "BitTorrent protocol";
     handshake.push_back(static_cast<char>(protocol.size()));
     handshake.append(protocol);
     handshake.append(8, 0);
+
+    if (support_extension) {
+        handshake[handshake.size() - 3] = 0x10;
+    }
 
     handshake += info_hash;
     handshake += PEER_ID;
@@ -206,11 +213,12 @@ std::string getHandshakeBuffer(const std::string &torrent_file_path) {
     return handshake;
 }
 
-std::string doHandshakeHelper(const std::string &torrent_file_path,
-                              const TCPHandler &tcp_handler) {
+std::string doHandshakeHelper(const std::string &info_hash,
+                              const TCPHandler &tcp_handler,
+                              bool support_extension) {
     // std::cerr << __PRETTY_FUNCTION__ << std::endl;
 
-    std::string handshake = getHandshakeBuffer(torrent_file_path);
+    std::string handshake = getHandshakeBuffer(info_hash, support_extension);
     tcp_handler.sendData(handshake);
     std::string output = tcp_handler.readHandShake();
     std::string peer_id = output.substr(48, 20);
@@ -221,7 +229,8 @@ void doHandshake(const std::string &torrent_file_path, const IPPort &peer) {
     // std::cerr << __PRETTY_FUNCTION__ << std::endl;
 
     TCPHandler tcp_handler(peer);
-    std::string peer_id = doHandshakeHelper(torrent_file_path, tcp_handler);
+    std::string peer_id =
+        doHandshakeHelper(getInfoHash(torrent_file_path), tcp_handler, false);
     std::cout << "Peer ID: " << stringToHex(peer_id) << std::endl;
 }
 
@@ -244,7 +253,7 @@ void downloadPiece(const std::string &torrent_file_path,
     assert(("No peers found", !peers.empty()));
 
     auto tcp_handler = std::make_unique<TCPHandler>(peers[0]);
-    doHandshakeHelper(torrent_file_path, *tcp_handler);
+    doHandshakeHelper(getInfoHash(torrent_file_path), *tcp_handler, false);
 
     std::string message = tcp_handler->readMessage();
     Message parsed_message = Message::parseFromBuffer(message);
@@ -282,7 +291,7 @@ void download(const std::string &torrent_file_path,
     std::vector<PieceDownloader> piece_downloaders(peers.size());
     auto prepare_downloader = [&](size_t peer_index) {
         auto tcp_handler = std::make_unique<TCPHandler>(peers[peer_index]);
-        doHandshakeHelper(torrent_file_path, *tcp_handler);
+        doHandshakeHelper(getInfoHash(torrent_file_path), *tcp_handler, false);
 
         std::string message = tcp_handler->readMessage();
         Message parsed_message = Message::parseFromBuffer(message);
@@ -340,7 +349,8 @@ void download(const std::string &torrent_file_path,
     std::cerr << "Download completed successfully" << std::endl;
 }
 
-void parseMagnetLink(const std::string &magnet_link) {
+std::unordered_map<std::string, std::string>
+parseMagnetLink(const std::string &magnet_link) {
     // std::cerr << __PRETTY_FUNCTION__ << std::endl;
 
     std::string prefix = "magnet:?";
@@ -363,8 +373,34 @@ void parseMagnetLink(const std::string &magnet_link) {
         params[key] = value;
     });
 
+    return params;
+}
+
+void printMagnetLinkInfo(const std::string &magnet_link) {
+    // std::cerr << __PRETTY_FUNCTION__ << std::endl;
+
+    std::unordered_map<std::string, std::string> params =
+        parseMagnetLink(magnet_link);
     std::cout << "Tracker URL: " << params["tr"] << std::endl;
     std::cout << "Info Hash: " << params["xt"].substr(9) << std::endl;
+}
+
+void magnetHandshake(const std::string &magnet_link) {
+    // std::cerr << __PRETTY_FUNCTION__ << std::endl;
+
+    std::unordered_map<std::string, std::string> params =
+        parseMagnetLink(magnet_link);
+    std::string info_hash = params["xt"].substr(9);
+    std::string tracker_url = params["tr"];
+
+    std::vector<IPPort> peers =
+        getPeers(hexToString(info_hash), tracker_url, 999);
+    assert(("No peers found", !peers.empty()));
+
+    TCPHandler tcp_handler(peers[0]);
+    std::string peer_id =
+        doHandshakeHelper(hexToString(info_hash), tcp_handler, true);
+    std::cout << "Peer ID: " << stringToHex(peer_id) << std::endl;
 }
 
 void dispatchCommand(int argc, char *argv[]) {
@@ -434,6 +470,14 @@ void dispatchCommand(int argc, char *argv[]) {
         .required();
     program.add_subparser(magnet_parse_command);
 
+    argparse::ArgumentParser magnet_handshake_command("magnet_handshake");
+    magnet_handshake_command.add_description("Perform a handshake with a peer "
+                                             "using a magnet link.");
+    magnet_handshake_command.add_argument("magnet_link")
+        .help("The magnet link to use.")
+        .required();
+    program.add_subparser(magnet_handshake_command);
+
     program.parse_args(argc, argv);
 
     if (program.is_subcommand_used("decode")) {
@@ -481,6 +525,10 @@ void dispatchCommand(int argc, char *argv[]) {
     } else if (program.is_subcommand_used("magnet_parse")) {
         std::string magnet_link =
             magnet_parse_command.get<std::string>("magnet_link");
-        parseMagnetLink(magnet_link);
+        printMagnetLinkInfo(magnet_link);
+    } else if (program.is_subcommand_used("magnet_handshake")) {
+        std::string magnet_link =
+            magnet_handshake_command.get<std::string>("magnet_link");
+        magnetHandshake(magnet_link);
     }
 }
