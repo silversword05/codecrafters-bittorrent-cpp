@@ -7,6 +7,7 @@
 static const std::string PEER_ID = "-TR2940-0b0b0b0b0b0b";
 
 std::string urlEncode(const std::string &value);
+std::string urlDecode(const std::string &value);
 std::string formatUrlWithGetParams(
     const std::string &url,
     const std::unordered_map<std::string, std::string> &params);
@@ -30,5 +31,7 @@ void downloadPiece(const std::string &torrent_file_path,
 
 void download(const std::string &torrent_file_path,
               const std::string &output_file_path);
+
+void parseMagnetLink(const std::string &magnet_link);
 
 void dispatchCommand(int argc, char *argv[]);

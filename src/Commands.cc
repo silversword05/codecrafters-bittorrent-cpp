@@ -24,6 +24,29 @@ std::string urlEncode(const std::string &value) {
     return escaped.str();
 }
 
+std::string urlDecode(const std::string &value) {
+    std::ostringstream unescaped;
+    unescaped.fill('0');
+    unescaped << std::hex;
+
+    for (size_t i = 0; i < value.size(); i++) {
+        char c = value[i];
+        if (c == '%') {
+            if (i + 2 >= value.size()) {
+                throw std::runtime_error("Invalid URL encoding");
+            }
+            i++;
+            int hex_val = std::stoi(value.substr(i, 2), nullptr, 16);
+            unescaped << static_cast<char>(hex_val);
+            i++;
+        } else {
+            unescaped << c;
+        }
+    }
+
+    return unescaped.str();
+}
+
 std::string hexToString(const std::string &hex) {
     std::string result;
     result.reserve(hex.size() / 2);
@@ -317,6 +340,33 @@ void download(const std::string &torrent_file_path,
     std::cerr << "Download completed successfully" << std::endl;
 }
 
+void parseMagnetLink(const std::string &magnet_link) {
+    // std::cerr << __PRETTY_FUNCTION__ << std::endl;
+
+    std::string prefix = "magnet:?";
+    if (magnet_link.substr(0, prefix.size()) != prefix) {
+        throw std::runtime_error("Invalid magnet link");
+    }
+
+    std::string params_str = urlDecode(magnet_link.substr(prefix.size()));
+    auto params_args = params_str | std::views::split('&');
+    std::unordered_map<std::string, std::string> params;
+
+    std::ranges::for_each(params_args, [&params](auto &&arg) {
+        std::string_view sarg(arg.begin(), arg.end());
+        std::string::size_type eq_pos = sarg.find('=');
+        if (eq_pos == std::string::npos) {
+            throw std::runtime_error("Invalid magnet link");
+        }
+        std::string key(sarg.substr(0, eq_pos));
+        std::string value(sarg.substr(eq_pos + 1));
+        params[key] = value;
+    });
+
+    std::cout << "Tracker URL: " << params["tr"] << std::endl;
+    std::cout << "Info Hash: " << params["xt"].substr(9) << std::endl;
+}
+
 void dispatchCommand(int argc, char *argv[]) {
     // std::cerr << __PRETTY_FUNCTION__ << std::endl;
 
@@ -377,6 +427,13 @@ void dispatchCommand(int argc, char *argv[]) {
         .required();
     program.add_subparser(download_command);
 
+    argparse::ArgumentParser magnet_parse_command("magnet_parse");
+    magnet_parse_command.add_description("Parse a magnet link.");
+    magnet_parse_command.add_argument("magnet_link")
+        .help("The magnet link to parse.")
+        .required();
+    program.add_subparser(magnet_parse_command);
+
     program.parse_args(argc, argv);
 
     if (program.is_subcommand_used("decode")) {
@@ -421,5 +478,9 @@ void dispatchCommand(int argc, char *argv[]) {
         std::string torrent_file_path =
             download_command.get<std::string>("file_path");
         download(torrent_file_path, output_file_path);
+    } else if (program.is_subcommand_used("magnet_parse")) {
+        std::string magnet_link =
+            magnet_parse_command.get<std::string>("magnet_link");
+        parseMagnetLink(magnet_link);
     }
 }
