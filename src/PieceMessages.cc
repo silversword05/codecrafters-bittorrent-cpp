@@ -98,15 +98,15 @@ std::string Message::getExtendedRequestMessage(const uint32_t piece_index) {
                                        request_payload);
 }
 
-PieceDownloader::PieceDownloader(json decoded_value,
+PieceDownloader::PieceDownloader(json info,
                                  std::unique_ptr<TCPHandler> tcp_handler)
     : tcp_handler(std::move(tcp_handler)) {
     // std::cerr << __PRETTY_FUNCTION__ << std::endl;
-    // std::cerr << decoded_value.dump(-1, ' ', false,
+    // std::cerr << info.dump(-1, ' ', false,
     // json::error_handler_t::replace) << std::endl;
 
-    standard_piece_length = decoded_value["info"]["piece length"].get<size_t>();
-    total_file_size = decoded_value["info"]["length"].get<size_t>();
+    standard_piece_length = info["piece length"].get<size_t>();
+    total_file_size = info["length"].get<size_t>();
     num_pieces =
         (total_file_size + standard_piece_length - 1) / standard_piece_length;
 }

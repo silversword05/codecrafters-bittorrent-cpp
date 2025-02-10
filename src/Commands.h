@@ -53,7 +53,7 @@ struct Commands {
     static std::unordered_map<std::string, std::string>
     parseMagnetLink(const std::string &magnet_link);
 
-    static std::pair<std::unique_ptr<TCPHandler>, std::string>
+    static std::pair<std::vector<IPPort>, std::string>
     getTCPHandlerAndInfoHash(const std::string &magnet_link);
 
     static json doExtendedHandshake(const TCPHandler &tcp_handler);

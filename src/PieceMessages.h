@@ -49,8 +49,7 @@ struct Message {
 
 struct PieceDownloader {
     PieceDownloader() = default;
-    PieceDownloader(json decoded_value,
-                    std::unique_ptr<TCPHandler> tcp_handler);
+    PieceDownloader(json info, std::unique_ptr<TCPHandler> tcp_handler);
     std::string downloadPiece(const uint32_t piece_index);
 
   private:

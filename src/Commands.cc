@@ -272,7 +272,7 @@ void Commands::downloadPiece(const std::string &torrent_file_path,
         continue;
     }
 
-    PieceDownloader piece_downloader(decoded_value, std::move(tcp_handler));
+    PieceDownloader piece_downloader(decoded_value["info"], std::move(tcp_handler));
     std::string piece_data = piece_downloader.downloadPiece(piece_index);
 
     std::ofstream output_file(output_file_path, std::ios::binary);
@@ -311,7 +311,7 @@ void Commands::download(const std::string &torrent_file_path,
         }
 
         piece_downloaders[peer_index] =
-            PieceDownloader(decoded_value, std::move(tcp_handler));
+            PieceDownloader(decoded_value["info"], std::move(tcp_handler));
     };
 
     {
@@ -406,7 +406,7 @@ json Commands::doExtendedHandshake(const TCPHandler &tcp_handler) {
     return decodeDictionary(handshake_data);
 }
 
-std::pair<std::unique_ptr<TCPHandler>, std::string>
+std::pair<std::vector<IPPort>, std::string>
 Commands::getTCPHandlerAndInfoHash(const std::string &magnet_link) {
     // std::cerr << __PRETTY_FUNCTION__ << std::endl;
 
@@ -419,7 +419,7 @@ Commands::getTCPHandlerAndInfoHash(const std::string &magnet_link) {
         getPeers(hexToString(info_hash), tracker_url, 999);
     assert(("No peers found", !peers.empty()));
 
-    return {std::make_unique<TCPHandler>(peers[0]), info_hash};
+    return {peers, info_hash};
 }
 
 std::pair<std::string, std::string>
@@ -447,7 +447,8 @@ Commands::doMagentHandshake(const TCPHandler &tcp_handler,
 void Commands::magnetHandshake(const std::string &magnet_link) {
     // std::cerr << __PRETTY_FUNCTION__ << std::endl;
 
-    auto [tcp_handler, info_hash] = getTCPHandlerAndInfoHash(magnet_link);
+    auto [peers, info_hash] = getTCPHandlerAndInfoHash(magnet_link);
+    auto tcp_handler = std::make_unique<TCPHandler>(peers[0]);
     auto [peer_id, metadata_extension_id] =
         doMagentHandshake(*tcp_handler, info_hash);
 
@@ -459,7 +460,8 @@ void Commands::magnetHandshake(const std::string &magnet_link) {
 void Commands::printMagnetLinkInfo(const std::string &magnet_link) {
     // std::cerr << __PRETTY_FUNCTION__ << std::endl;
 
-    auto [tcp_handler, info_hash] = getTCPHandlerAndInfoHash(magnet_link);
+    auto [peers, info_hash] = getTCPHandlerAndInfoHash(magnet_link);
+    auto tcp_handler = std::make_unique<TCPHandler>(peers[0]);
     auto [peer_id, metadata_extension_id] =
         doMagentHandshake(*tcp_handler, info_hash);
 
