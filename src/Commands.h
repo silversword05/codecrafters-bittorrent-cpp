@@ -17,8 +17,9 @@ struct Commands {
                               const uint32_t piece_index);
     static void download(const std::string &torrent_file_path,
                          const std::string &output_file_path);
-    static void printMagnetLinkInfo(const std::string &magnet_link);
+    static void printMagnetLinkParse(const std::string &magnet_link);
     static void magnetHandshake(const std::string &magnet_link);
+    static void printMagnetLinkInfo(const std::string &magnet_link);
 
   private:
     static std::string urlEncode(const std::string &value);
@@ -52,7 +53,13 @@ struct Commands {
     static std::unordered_map<std::string, std::string>
     parseMagnetLink(const std::string &magnet_link);
 
+    static std::pair<std::unique_ptr<TCPHandler>, std::string>
+    getTCPHandlerAndInfoHash(const std::string &magnet_link);
+
     static json doExtendedHandshake(const TCPHandler &tcp_handler);
+
+    static std::pair<std::string, std::string>
+    doMagentHandshake(const TCPHandler &tcp_handler, std::string info_hash);
 };
 
 void dispatchCommand(int argc, char *argv[]);

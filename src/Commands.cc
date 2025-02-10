@@ -158,6 +158,8 @@ std::vector<IPPort> Commands::getPeers(const std::string &info_hash,
     jsonWithSize respDecoded = decodeBencodedValue(respStr);
     assert(
         ("Entire string not consumed", respDecoded.second == respStr.size()));
+    assert(("Invalid response type", respDecoded.first["peers"].is_string()));
+
     std::string peers = respDecoded.first["peers"].get<std::string>();
     assert(("Invalid peers value size", peers.size() % 6 == 0));
 
@@ -381,7 +383,7 @@ Commands::parseMagnetLink(const std::string &magnet_link) {
     return params;
 }
 
-void Commands::printMagnetLinkInfo(const std::string &magnet_link) {
+void Commands::printMagnetLinkParse(const std::string &magnet_link) {
     // std::cerr << __PRETTY_FUNCTION__ << std::endl;
 
     std::unordered_map<std::string, std::string> params =
@@ -404,7 +406,8 @@ json Commands::doExtendedHandshake(const TCPHandler &tcp_handler) {
     return decodeDictionary(handshake_data);
 }
 
-void Commands::magnetHandshake(const std::string &magnet_link) {
+std::pair<std::unique_ptr<TCPHandler>, std::string>
+Commands::getTCPHandlerAndInfoHash(const std::string &magnet_link) {
     // std::cerr << __PRETTY_FUNCTION__ << std::endl;
 
     std::unordered_map<std::string, std::string> params =
@@ -416,7 +419,13 @@ void Commands::magnetHandshake(const std::string &magnet_link) {
         getPeers(hexToString(info_hash), tracker_url, 999);
     assert(("No peers found", !peers.empty()));
 
-    TCPHandler tcp_handler(peers[0]);
+    return {std::make_unique<TCPHandler>(peers[0]), info_hash};
+}
+
+std::pair<std::string, std::string>
+Commands::doMagentHandshake(const TCPHandler &tcp_handler,
+                            std::string info_hash) {
+    // std::cerr << __PRETTY_FUNCTION__ << std::endl;
     auto [peer_id, reserved] =
         doHandshakeHelper(hexToString(info_hash), tcp_handler, true);
 
@@ -432,9 +441,29 @@ void Commands::magnetHandshake(const std::string &magnet_link) {
             handshake_response.begin()->at("m").at("ut_metadata").get<uint>();
     }
 
+    return {peer_id, std::to_string(metadata_extension_id)};
+}
+
+void Commands::magnetHandshake(const std::string &magnet_link) {
+    // std::cerr << __PRETTY_FUNCTION__ << std::endl;
+
+    auto [tcp_handler, info_hash] = getTCPHandlerAndInfoHash(magnet_link);
+    auto [peer_id, metadata_extension_id] =
+        doMagentHandshake(*tcp_handler, info_hash);
+
     std::cout << "Peer ID: " << stringToHex(peer_id) << std::endl;
     std::cout << "Peer Metadata Extension ID: " << metadata_extension_id
               << std::endl;
+}
+
+void Commands::printMagnetLinkInfo(const std::string &magnet_link) {
+    // std::cerr << __PRETTY_FUNCTION__ << std::endl;
+
+    auto [tcp_handler, info_hash] = getTCPHandlerAndInfoHash(magnet_link);
+    auto [peer_id, metadata_extension_id] =
+        doMagentHandshake(*tcp_handler, info_hash);
+
+    tcp_handler->sendData(Message::getExtendedRequestMessage(0));
 }
 
 void dispatchCommand(int argc, char *argv[]) {
@@ -512,6 +541,13 @@ void dispatchCommand(int argc, char *argv[]) {
         .required();
     program.add_subparser(magnet_handshake_command);
 
+    argparse::ArgumentParser magnet_info_command("magnet_info");
+    magnet_info_command.add_description("Get information about a magnet link.");
+    magnet_info_command.add_argument("magnet_link")
+        .help("The magnet link to use.")
+        .required();
+    program.add_subparser(magnet_info_command);
+
     program.parse_args(argc, argv);
 
     if (program.is_subcommand_used("decode")) {
@@ -560,10 +596,14 @@ void dispatchCommand(int argc, char *argv[]) {
     } else if (program.is_subcommand_used("magnet_parse")) {
         std::string magnet_link =
             magnet_parse_command.get<std::string>("magnet_link");
-        Commands::printMagnetLinkInfo(magnet_link);
+        Commands::printMagnetLinkParse(magnet_link);
     } else if (program.is_subcommand_used("magnet_handshake")) {
         std::string magnet_link =
             magnet_handshake_command.get<std::string>("magnet_link");
         Commands::magnetHandshake(magnet_link);
+    } else if (program.is_subcommand_used("magnet_info")) {
+        std::string magnet_link =
+            magnet_info_command.get<std::string>("magnet_link");
+        Commands::printMagnetLinkInfo(magnet_link);
     }
 }

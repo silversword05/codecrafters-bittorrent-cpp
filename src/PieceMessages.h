@@ -19,6 +19,12 @@ enum class MessageType : uint8_t {
     BT_EXTENDED = 20,
 };
 
+enum class ExtensionMessageType : uint8_t {
+    EXTENDED_HANDSHAKE = 0,
+    EXTENDED_METADATA = 1,
+    EXTENDED_PIECE = 2,
+};
+
 struct Message {
     uint32_t length;
     MessageType type;
@@ -30,9 +36,10 @@ struct Message {
     static std::string getRequestMessage(uint32_t peice_index, uint32_t offset,
                                          uint32_t block_length);
 
-    static std::string getExtendedMessage(const uint32_t message_id,
+    static std::string getExtendedMessage(const ExtensionMessageType message_id,
                                           const json &payload);
     static std::string getExtenedHandshakeMessage();
+    static std::string getExtendedRequestMessage(const uint32_t piece_index);
 
     std::string serialize(bool convert_length_order = true) const;
     std::vector<bool> interpretAsBitfieldMessage() const;
