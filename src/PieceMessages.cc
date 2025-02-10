@@ -9,10 +9,16 @@ Message Message::parseFromBuffer(const std::string &buffer) {
     return message;
 }
 
-std::string Message::serialize() const {
+std::string Message::serialize(bool convert_length_order) const {
     std::string res;
     res.resize(5 + payload.size());
-    *reinterpret_cast<uint32_t *>(res.data()) = htonl(length);
+
+    if (convert_length_order) {
+        uint32_t length = htonl(this->length);
+        *reinterpret_cast<uint32_t *>(res.data()) = length;
+    } else {
+        *reinterpret_cast<uint32_t *>(res.data()) = this->length;
+    }
     res[4] = static_cast<uint8_t>(type);
     std::copy(payload.begin(), payload.end(), res.begin() + 5);
     return res;
@@ -65,7 +71,24 @@ bool Message::isUnchokeMessage(const std::string &buffer) {
     return message.type == MessageType::UNCHOKE;
 }
 
-PieceDownloader::PieceDownloader(json decoded_value, std::unique_ptr<TCPHandler> tcp_handler)
+std::string Message::getExtenedHandshakeMessage() {
+    Message message;
+    message.type = MessageType::BT_EXTENDED;
+
+    json handshake_dict;
+    handshake_dict["m"] = {
+        {"ut_metadata", 1},
+    };
+    
+    message.payload.push_back(0); // Extended Message ID
+    message.payload += encodeDictionary(handshake_dict);
+
+    message.length = htonl(message.payload.size() + 1 /* message ID */);
+    return message.serialize(false);
+}
+
+PieceDownloader::PieceDownloader(json decoded_value,
+                                 std::unique_ptr<TCPHandler> tcp_handler)
     : tcp_handler(std::move(tcp_handler)) {
     // std::cerr << __PRETTY_FUNCTION__ << std::endl;
     // std::cerr << decoded_value.dump(-1, ' ', false,

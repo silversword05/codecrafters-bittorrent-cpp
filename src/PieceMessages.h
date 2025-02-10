@@ -15,7 +15,8 @@ enum class MessageType : uint8_t {
     REQUEST = 6,
     PIECE = 7,
     CANCEL = 8,
-    HANDSHAKE = 9
+    HANDSHAKE = 9,
+    BT_EXTENDED = 20,
 };
 
 struct Message {
@@ -28,8 +29,9 @@ struct Message {
     static bool isUnchokeMessage(const std::string &buffer);
     static std::string getRequestMessage(uint32_t peice_index, uint32_t offset,
                                          uint32_t block_length);
+    static std::string getExtenedHandshakeMessage();
 
-    std::string serialize() const;
+    std::string serialize(bool convert_length_order = true) const;
     std::vector<bool> interpretAsBitfieldMessage() const;
     std::pair<uint32_t, std::string>
     interpretAsPieceMessage(const uint32_t peice_index) const;

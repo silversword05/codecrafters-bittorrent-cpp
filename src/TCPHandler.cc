@@ -33,6 +33,7 @@ void TCPHandler::clearReadBuffer() const {
            0) {
         std::cerr << "Discarding " << bytes_read << " bytes of read buffer"
                   << std::endl;
+        // hexdump(std::string(buffer, bytes_read), "Discarded data");
     }
 
     // Check for errors other than EWOULDBLOCK/EAGAIN

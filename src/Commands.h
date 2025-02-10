@@ -27,9 +27,9 @@ void discoverPeers(const std::string &torrent_file_path);
 
 std::string getHandshakeBuffer(const std::string &info_hash,
                                bool support_extension);
-std::string doHandshakeHelper(const std::string &info_hash,
-                              const TCPHandler &tcp_handler,
-                              bool support_extension);
+std::pair<std::string, bool> doHandshakeHelper(const std::string &info_hash,
+                                               const TCPHandler &tcp_handler,
+                                               bool support_extension);
 void doHandshake(const std::string &torrent_file_path, const IPPort &peer);
 
 bool verifyPeice(const std::string &piece, const std::string &piece_hash);
@@ -42,6 +42,9 @@ void download(const std::string &torrent_file_path,
 
 std::unordered_map<std::string, std::string>
 parseMagnetLink(const std::string &magnet_link);
+
+void doExtendedHandshake(const TCPHandler &tcp_handler);
+
 void printMagnetLinkInfo(const std::string &magnet_link);
 void magnetHandshake(const std::string &magnet_link);
 

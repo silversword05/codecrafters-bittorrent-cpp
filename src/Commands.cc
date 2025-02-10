@@ -213,23 +213,24 @@ std::string getHandshakeBuffer(const std::string &info_hash,
     return handshake;
 }
 
-std::string doHandshakeHelper(const std::string &info_hash,
-                              const TCPHandler &tcp_handler,
-                              bool support_extension) {
+std::pair<std::string, bool> doHandshakeHelper(const std::string &info_hash,
+                                               const TCPHandler &tcp_handler,
+                                               bool support_extension) {
     // std::cerr << __PRETTY_FUNCTION__ << std::endl;
 
     std::string handshake = getHandshakeBuffer(info_hash, support_extension);
     tcp_handler.sendData(handshake);
     std::string output = tcp_handler.readHandShake();
     std::string peer_id = output.substr(48, 20);
-    return peer_id;
+    bool reserved = output[25] & 0x10;
+    return {peer_id, reserved};
 }
 
 void doHandshake(const std::string &torrent_file_path, const IPPort &peer) {
     // std::cerr << __PRETTY_FUNCTION__ << std::endl;
 
     TCPHandler tcp_handler(peer);
-    std::string peer_id =
+    auto [peer_id, _] =
         doHandshakeHelper(getInfoHash(torrent_file_path), tcp_handler, false);
     std::cout << "Peer ID: " << stringToHex(peer_id) << std::endl;
 }
@@ -385,6 +386,17 @@ void printMagnetLinkInfo(const std::string &magnet_link) {
     std::cout << "Info Hash: " << params["xt"].substr(9) << std::endl;
 }
 
+void doExtendedHandshake(const TCPHandler &tcp_handler) {
+    // std::cerr << __PRETTY_FUNCTION__ << std::endl;
+
+    std::string message = tcp_handler.readMessage();
+    Message parsed_message = Message::parseFromBuffer(message);
+    assert(("Not a extended handshake message",
+            parsed_message.type == MessageType::BT_EXTENDED));
+
+    tcp_handler.sendData(Message::getExtenedHandshakeMessage());
+}
+
 void magnetHandshake(const std::string &magnet_link) {
     // std::cerr << __PRETTY_FUNCTION__ << std::endl;
 
@@ -398,8 +410,18 @@ void magnetHandshake(const std::string &magnet_link) {
     assert(("No peers found", !peers.empty()));
 
     TCPHandler tcp_handler(peers[0]);
-    std::string peer_id =
+    auto [peer_id, reserved] =
         doHandshakeHelper(hexToString(info_hash), tcp_handler, true);
+
+    std::string message = tcp_handler.readMessage();
+    Message parsed_message = Message::parseFromBuffer(message);
+    assert(("Not a bitfield message",
+            parsed_message.type == MessageType::BITFIELD));
+
+    if (reserved) {
+        doExtendedHandshake(tcp_handler);
+    }
+
     std::cout << "Peer ID: " << stringToHex(peer_id) << std::endl;
 }
 
