@@ -43,7 +43,7 @@ void download(const std::string &torrent_file_path,
 std::unordered_map<std::string, std::string>
 parseMagnetLink(const std::string &magnet_link);
 
-void doExtendedHandshake(const TCPHandler &tcp_handler);
+json doExtendedHandshake(const TCPHandler &tcp_handler);
 
 void printMagnetLinkInfo(const std::string &magnet_link);
 void magnetHandshake(const std::string &magnet_link);

@@ -386,7 +386,7 @@ void printMagnetLinkInfo(const std::string &magnet_link) {
     std::cout << "Info Hash: " << params["xt"].substr(9) << std::endl;
 }
 
-void doExtendedHandshake(const TCPHandler &tcp_handler) {
+json doExtendedHandshake(const TCPHandler &tcp_handler) {
     // std::cerr << __PRETTY_FUNCTION__ << std::endl;
 
     std::string message = tcp_handler.readMessage();
@@ -395,6 +395,9 @@ void doExtendedHandshake(const TCPHandler &tcp_handler) {
             parsed_message.type == MessageType::BT_EXTENDED));
 
     tcp_handler.sendData(Message::getExtenedHandshakeMessage());
+
+    std::string handshake_data = parsed_message.payload.substr(1);
+    return decodeDictionary(handshake_data);
 }
 
 void magnetHandshake(const std::string &magnet_link) {
@@ -418,11 +421,16 @@ void magnetHandshake(const std::string &magnet_link) {
     assert(("Not a bitfield message",
             parsed_message.type == MessageType::BITFIELD));
 
+    uint metadata_extension_id;
     if (reserved) {
-        doExtendedHandshake(tcp_handler);
+        json handshake_response = doExtendedHandshake(tcp_handler);
+        metadata_extension_id =
+            handshake_response.begin()->at("m").at("ut_metadata").get<uint>();
     }
 
     std::cout << "Peer ID: " << stringToHex(peer_id) << std::endl;
+    std::cout << "Peer Metadata Extension ID: " << metadata_extension_id
+              << std::endl;
 }
 
 void dispatchCommand(int argc, char *argv[]) {
