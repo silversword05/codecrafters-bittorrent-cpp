@@ -71,20 +71,21 @@ bool Message::isUnchokeMessage(const std::string &buffer) {
     return message.type == MessageType::UNCHOKE;
 }
 
-std::string Message::getExtenedHandshakeMessage() {
+std::string Message::getExtendedMessage(const uint32_t message_id,
+                                        const json &payload) {
     Message message;
     message.type = MessageType::BT_EXTENDED;
-
-    json handshake_dict;
-    handshake_dict["m"] = {
-        {"ut_metadata", 1},
-    };
-    
-    message.payload.push_back(0); // Extended Message ID
-    message.payload += encodeDictionary(handshake_dict);
-
-    message.length = htonl(message.payload.size() + 1 /* message ID */);
+    message.payload.push_back(message_id);
+    message.payload += encodeDictionary(payload);
+    message.length = htonl(message.payload.size() + 1);
     return message.serialize(false);
+}
+
+std::string Message::getExtenedHandshakeMessage() {
+    json handshake_payload;
+    handshake_payload["m"]["ut_metadata"] = 1;
+
+    return Message::getExtendedMessage(0, handshake_payload);
 }
 
 PieceDownloader::PieceDownloader(json decoded_value,

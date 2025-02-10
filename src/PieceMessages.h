@@ -29,6 +29,9 @@ struct Message {
     static bool isUnchokeMessage(const std::string &buffer);
     static std::string getRequestMessage(uint32_t peice_index, uint32_t offset,
                                          uint32_t block_length);
+
+    static std::string getExtendedMessage(const uint32_t message_id,
+                                          const json &payload);
     static std::string getExtenedHandshakeMessage();
 
     std::string serialize(bool convert_length_order = true) const;
