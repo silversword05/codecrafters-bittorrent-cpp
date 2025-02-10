@@ -149,7 +149,7 @@ std::vector<IPPort> Commands::getPeers(const std::string &info_hash,
         {"compact", "1"}};
 
     std::string formatted_url = formatUrlWithGetParams(tracker_url, params);
-    std::cerr << "Formatted URL: " << formatted_url << std::endl;
+    // std::cerr << "Formatted URL: " << formatted_url << std::endl;
 
     http::Request request{formatted_url, http::InternetProtocol::v4};
     const auto response = request.send("GET");
@@ -464,6 +464,30 @@ void Commands::printMagnetLinkInfo(const std::string &magnet_link) {
         doMagentHandshake(*tcp_handler, info_hash);
 
     tcp_handler->sendData(Message::getExtendedRequestMessage(0));
+    std::string message = tcp_handler->readMessage();
+    Message parsed_message = Message::parseFromBuffer(message);
+    assert(("Not a extended message",
+            parsed_message.type == MessageType::BT_EXTENDED));
+    jsonWithSize details =
+        decodeBencodedValue(parsed_message.payload.substr(1));
+    jsonWithSize metadata =
+        decodeBencodedValue(parsed_message.payload.substr(1 + details.second));
+    assert(
+        ("Entire string not consumed", details.second + metadata.second + 1 ==
+                                           parsed_message.payload.size()));
+
+    std::unordered_map<std::string, std::string> params =
+        parseMagnetLink(magnet_link);
+    std::cout << "Tracker URL: " << params["tr"] << std::endl;
+    std::cout << "Length: " << metadata.first["length"].get<int>() << std::endl;
+    std::cout << "Info Hash: " << params["xt"].substr(9) << std::endl;
+    std::cout << "Piece Length: " << metadata.first["piece length"].get<int>()
+              << std::endl;
+    std::string pieces_val = metadata.first["pieces"].get<std::string>();
+    for (uint i = 0; i < pieces_val.size(); i += 20) {
+        std::string piece_hash = pieces_val.substr(i, 20);
+        std::cout << "Pieces: " << stringToHex(piece_hash) << std::endl;
+    }
 }
 
 void dispatchCommand(int argc, char *argv[]) {
