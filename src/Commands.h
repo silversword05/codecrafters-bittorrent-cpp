@@ -10,16 +10,24 @@ struct Commands {
   public:
     static void decodeTorrentFile(const std::string &torrent_file_path);
     static void discoverPeers(const std::string &torrent_file_path);
+
     static void doHandshake(const std::string &torrent_file_path,
                             const IPPort &peer);
+
     static void downloadPiece(const std::string &torrent_file_path,
                               const std::string &output_file_path,
                               const uint32_t piece_index);
+
     static void download(const std::string &torrent_file_path,
                          const std::string &output_file_path);
+
     static void printMagnetLinkParse(const std::string &magnet_link);
     static void magnetHandshake(const std::string &magnet_link);
     static void printMagnetLinkInfo(const std::string &magnet_link);
+
+    static void downloadMagentPiece(const std::string &magnet_link,
+                                    const std::string &output_file_path,
+                                    const uint32_t piece_index);
 
   private:
     static std::string urlEncode(const std::string &value);
@@ -59,7 +67,11 @@ struct Commands {
     static json doExtendedHandshake(const TCPHandler &tcp_handler);
 
     static std::pair<std::string, std::string>
-    doMagentHandshake(const TCPHandler &tcp_handler, std::string info_hash);
+    doMagentHandshake(const TCPHandler &tcp_handler,
+                      const std::string info_hash);
+
+    static json getMagnentLinkInfo(const TCPHandler &tcp_handler,
+                                   const std::string info_hash);
 };
 
 void dispatchCommand(int argc, char *argv[]);

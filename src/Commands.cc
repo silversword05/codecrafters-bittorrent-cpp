@@ -272,7 +272,8 @@ void Commands::downloadPiece(const std::string &torrent_file_path,
         continue;
     }
 
-    PieceDownloader piece_downloader(decoded_value["info"], std::move(tcp_handler));
+    PieceDownloader piece_downloader(decoded_value["info"],
+                                     std::move(tcp_handler));
     std::string piece_data = piece_downloader.downloadPiece(piece_index);
 
     std::ofstream output_file(output_file_path, std::ios::binary);
@@ -424,7 +425,7 @@ Commands::getTCPHandlerAndInfoHash(const std::string &magnet_link) {
 
 std::pair<std::string, std::string>
 Commands::doMagentHandshake(const TCPHandler &tcp_handler,
-                            std::string info_hash) {
+                            const std::string info_hash) {
     // std::cerr << __PRETTY_FUNCTION__ << std::endl;
     auto [peer_id, reserved] =
         doHandshakeHelper(hexToString(info_hash), tcp_handler, true);
@@ -457,16 +458,15 @@ void Commands::magnetHandshake(const std::string &magnet_link) {
               << std::endl;
 }
 
-void Commands::printMagnetLinkInfo(const std::string &magnet_link) {
+json Commands::getMagnentLinkInfo(const TCPHandler &tcp_handler,
+                                  const std::string info_hash) {
     // std::cerr << __PRETTY_FUNCTION__ << std::endl;
 
-    auto [peers, info_hash] = getTCPHandlerAndInfoHash(magnet_link);
-    auto tcp_handler = std::make_unique<TCPHandler>(peers[0]);
     auto [peer_id, metadata_extension_id] =
-        doMagentHandshake(*tcp_handler, info_hash);
+        doMagentHandshake(tcp_handler, info_hash);
 
-    tcp_handler->sendData(Message::getExtendedRequestMessage(0));
-    std::string message = tcp_handler->readMessage();
+    tcp_handler.sendData(Message::getExtendedRequestMessage(0));
+    std::string message = tcp_handler.readMessage();
     Message parsed_message = Message::parseFromBuffer(message);
     assert(("Not a extended message",
             parsed_message.type == MessageType::BT_EXTENDED));
@@ -478,18 +478,53 @@ void Commands::printMagnetLinkInfo(const std::string &magnet_link) {
         ("Entire string not consumed", details.second + metadata.second + 1 ==
                                            parsed_message.payload.size()));
 
+    return metadata.first;
+}
+
+void Commands::printMagnetLinkInfo(const std::string &magnet_link) {
+    // std::cerr << __PRETTY_FUNCTION__ << std::endl;
+
+    auto [peers, info_hash] = getTCPHandlerAndInfoHash(magnet_link);
+    auto tcp_handler = std::make_unique<TCPHandler>(peers[0]);
+
+    json info = getMagnentLinkInfo(*tcp_handler, info_hash);
+
     std::unordered_map<std::string, std::string> params =
         parseMagnetLink(magnet_link);
     std::cout << "Tracker URL: " << params["tr"] << std::endl;
-    std::cout << "Length: " << metadata.first["length"].get<int>() << std::endl;
+    std::cout << "Length: " << info["length"].get<int>() << std::endl;
     std::cout << "Info Hash: " << params["xt"].substr(9) << std::endl;
-    std::cout << "Piece Length: " << metadata.first["piece length"].get<int>()
+    std::cout << "Piece Length: " << info["piece length"].get<int>()
               << std::endl;
-    std::string pieces_val = metadata.first["pieces"].get<std::string>();
+    std::string pieces_val = info["pieces"].get<std::string>();
     for (uint i = 0; i < pieces_val.size(); i += 20) {
         std::string piece_hash = pieces_val.substr(i, 20);
         std::cout << "Pieces: " << stringToHex(piece_hash) << std::endl;
     }
+}
+
+void Commands::downloadMagentPiece(const std::string &magnet_link,
+                                   const std::string &output_file_path,
+                                   const uint32_t piece_index) {
+    // std::cerr << __PRETTY_FUNCTION__ << std::endl;
+
+    auto [peers, info_hash] = getTCPHandlerAndInfoHash(magnet_link);
+    auto tcp_handler = std::make_unique<TCPHandler>(peers[1]);
+
+    json info = getMagnentLinkInfo(*tcp_handler, info_hash);
+
+    PieceDownloader piece_downloader(info, std::move(tcp_handler));
+    std::string piece_data = piece_downloader.downloadPiece(piece_index);
+
+    std::ofstream output_file(output_file_path, std::ios::binary);
+    output_file.write(piece_data.data(), piece_data.size());
+
+    std::string pieces_val = info["pieces"].get<std::string>();
+    assert(("Invalid pieces value size", pieces_val.size() % 20 == 0));
+    std::string piece_hash = pieces_val.substr(piece_index * 20, 20);
+    assert(("Piece verification failed", verifyPeice(piece_data, piece_hash)));
+
+    std::cerr << "Piece downloaded successfully" << std::endl;
 }
 
 void dispatchCommand(int argc, char *argv[]) {
@@ -574,6 +609,23 @@ void dispatchCommand(int argc, char *argv[]) {
         .required();
     program.add_subparser(magnet_info_command);
 
+    argparse::ArgumentParser magnet_download_piece_command(
+        "magnet_download_piece");
+    magnet_download_piece_command.add_description(
+        "Download a piece from a peer "
+        "using a magnet link.");
+    magnet_download_piece_command.add_argument("-o", "--output")
+        .help("The output file path.")
+        .required();
+    magnet_download_piece_command.add_argument("magnet_link")
+        .help("The magnet link to use.")
+        .required();
+    magnet_download_piece_command.add_argument("piece_index")
+        .help("The peice index to download.")
+        .scan<'i', uint32_t>()
+        .required();
+    program.add_subparser(magnet_download_piece_command);
+
     program.parse_args(argc, argv);
 
     if (program.is_subcommand_used("decode")) {
@@ -631,5 +683,14 @@ void dispatchCommand(int argc, char *argv[]) {
         std::string magnet_link =
             magnet_info_command.get<std::string>("magnet_link");
         Commands::printMagnetLinkInfo(magnet_link);
+    } else if (program.is_subcommand_used("magnet_download_piece")) {
+        std::string output_file_path =
+            magnet_download_piece_command.get<std::string>("output");
+        std::string magnet_link =
+            magnet_download_piece_command.get<std::string>("magnet_link");
+        uint32_t piece_index =
+            magnet_download_piece_command.get<uint32_t>("piece_index");
+        Commands::downloadMagentPiece(magnet_link, output_file_path,
+                                      piece_index);
     }
 }
