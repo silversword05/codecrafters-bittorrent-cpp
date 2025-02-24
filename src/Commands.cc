@@ -513,6 +513,19 @@ void Commands::downloadMagentPiece(const std::string &magnet_link,
 
     json info = getMagnentLinkInfo(*tcp_handler, info_hash);
 
+    tcp_handler = std::make_unique<TCPHandler>(peers[0]);
+    doHandshakeHelper(hexToString(info_hash), *tcp_handler, false);
+
+    std::string message = tcp_handler->readMessage();
+    Message parsed_message = Message::parseFromBuffer(message);
+    assert(("Not a bitfield message",
+            parsed_message.type == MessageType::BITFIELD));
+
+    tcp_handler->sendData(Message::getInterestedMessage());
+    while (!Message::isUnchokeMessage(tcp_handler->readMessage())) {
+        continue;
+    }
+
     PieceDownloader piece_downloader(info, std::move(tcp_handler));
     std::string piece_data = piece_downloader.downloadPiece(piece_index);
 
