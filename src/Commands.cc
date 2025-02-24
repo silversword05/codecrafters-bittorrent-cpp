@@ -287,19 +287,14 @@ void Commands::downloadPiece(const std::string &torrent_file_path,
     std::cerr << "Piece downloaded successfully" << std::endl;
 }
 
-void Commands::download(const std::string &torrent_file_path,
-                        const std::string &output_file_path) {
-    // std::cerr << __PRETTY_FUNCTION__ << std::endl;
-
-    auto [decoded_value, sizeConsumed] =
-        getTorrentFileContents(torrent_file_path);
-    std::vector<IPPort> peers = getPeers(decoded_value);
-    assert(("No peers found", !peers.empty()));
-
+void Commands::downloadPieceHelper(const std::string &output_file_path,
+                                   const std::vector<IPPort> &peers,
+                                   const std::string &info_hash,
+                                   const json &info) {
     std::vector<PieceDownloader> piece_downloaders(peers.size());
     auto prepare_downloader = [&](size_t peer_index) {
         auto tcp_handler = std::make_unique<TCPHandler>(peers[peer_index]);
-        doHandshakeHelper(getInfoHash(torrent_file_path), *tcp_handler, false);
+        doHandshakeHelper(info_hash, *tcp_handler, false);
 
         std::string message = tcp_handler->readMessage();
         Message parsed_message = Message::parseFromBuffer(message);
@@ -312,7 +307,7 @@ void Commands::download(const std::string &torrent_file_path,
         }
 
         piece_downloaders[peer_index] =
-            PieceDownloader(decoded_value["info"], std::move(tcp_handler));
+            PieceDownloader(info, std::move(tcp_handler));
     };
 
     {
@@ -323,7 +318,7 @@ void Commands::download(const std::string &torrent_file_path,
     }
     std::cerr << "All peer connections established" << std::endl;
 
-    std::string pieces_val = decoded_value["info"]["pieces"].get<std::string>();
+    std::string pieces_val = info["pieces"].get<std::string>();
     assert(("Invalid pieces value size", pieces_val.size() % 20 == 0));
     std::vector<std::string> pieces_data(pieces_val.size() / 20);
 
@@ -355,6 +350,19 @@ void Commands::download(const std::string &torrent_file_path,
         output_file.write(piece_data.data(), piece_data.size());
     }
     std::cerr << "Download completed successfully" << std::endl;
+}
+
+void Commands::download(const std::string &torrent_file_path,
+                        const std::string &output_file_path) {
+    // std::cerr << __PRETTY_FUNCTION__ << std::endl;
+
+    auto [decoded_value, sizeConsumed] =
+        getTorrentFileContents(torrent_file_path);
+    std::vector<IPPort> peers = getPeers(decoded_value);
+    assert(("No peers found", !peers.empty()));
+
+    downloadPieceHelper(output_file_path, peers, getInfoHash(torrent_file_path),
+                        decoded_value["info"]);
 }
 
 std::unordered_map<std::string, std::string>
@@ -540,6 +548,17 @@ void Commands::downloadMagentPiece(const std::string &magnet_link,
     std::cerr << "Piece downloaded successfully" << std::endl;
 }
 
+void Commands::downloadMagnent(const std::string &magnet_link,
+                               const std::string &output_file_path) {
+    // std::cerr << __PRETTY_FUNCTION__ << std::endl;
+    auto [peers, info_hash] = getTCPHandlerAndInfoHash(magnet_link);
+    auto tcp_handler = std::make_unique<TCPHandler>(peers[0]);
+    json info = getMagnentLinkInfo(*tcp_handler, info_hash);
+    peers.erase(peers.begin());
+
+    downloadPieceHelper(output_file_path, peers, hexToString(info_hash), info);
+}
+
 void dispatchCommand(int argc, char *argv[]) {
     // std::cerr << __PRETTY_FUNCTION__ << std::endl;
 
@@ -639,6 +658,17 @@ void dispatchCommand(int argc, char *argv[]) {
         .required();
     program.add_subparser(magnet_download_piece_command);
 
+    argparse::ArgumentParser magnet_download_command("magnet_download");
+    magnet_download_command.add_description("Download a torrent file using a "
+                                            "magnet link.");
+    magnet_download_command.add_argument("-o", "--output")
+        .help("The output file path.")
+        .required();
+    magnet_download_command.add_argument("magnet_link")
+        .help("The magnet link to use.")
+        .required();
+    program.add_subparser(magnet_download_command);
+
     program.parse_args(argc, argv);
 
     if (program.is_subcommand_used("decode")) {
@@ -705,5 +735,11 @@ void dispatchCommand(int argc, char *argv[]) {
             magnet_download_piece_command.get<uint32_t>("piece_index");
         Commands::downloadMagentPiece(magnet_link, output_file_path,
                                       piece_index);
+    } else if (program.is_subcommand_used("magnet_download")) {
+        std::string output_file_path =
+            magnet_download_command.get<std::string>("output");
+        std::string magnet_link =
+            magnet_download_command.get<std::string>("magnet_link");
+        Commands::downloadMagnent(magnet_link, output_file_path);
     }
 }

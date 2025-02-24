@@ -29,6 +29,9 @@ struct Commands {
                                     const std::string &output_file_path,
                                     const uint32_t piece_index);
 
+    static void downloadMagnent(const std::string &magnet_link,
+                                const std::string &output_file_path);
+
   private:
     static std::string urlEncode(const std::string &value);
     static std::string urlDecode(const std::string &value);
@@ -72,6 +75,11 @@ struct Commands {
 
     static json getMagnentLinkInfo(const TCPHandler &tcp_handler,
                                    const std::string info_hash);
+
+    static void downloadPieceHelper(const std::string &output_file_path,
+                                    const std::vector<IPPort> &peers,
+                                    const std::string &info_hash,
+                                    const json &info);
 };
 
 void dispatchCommand(int argc, char *argv[]);
